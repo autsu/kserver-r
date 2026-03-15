@@ -80,6 +80,7 @@ func (ss stringSet) contains(s string) bool {
 	return found
 }
 
+//+runtime_resolver:3 列出支持当前模型格式/协议的 ServingRuntime 与 ClusterServingRuntime，排序后返回候选列表供自动选择
 // GetSupportingRuntimes Get a list of ServingRuntimeSpecs that correspond to ServingRuntimes and ClusterServingRuntimes that
 // support the given model. If the `isMMS` argument is true, this function will only return ServingRuntimes that are
 // ModelMesh compatible, otherwise only single-model serving compatible runtimes will be returned.

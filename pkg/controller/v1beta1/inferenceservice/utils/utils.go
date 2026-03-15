@@ -318,6 +318,7 @@ func MergePodSpec(runtimePodSpec *v1alpha1.ServingRuntimePodSpec, predictorPodSp
 	return &corePodSpec, nil
 }
 
+//+runtime_resolver:2 按名称解析运行时：先查命名空间 ServingRuntime，再查集群 ClusterServingRuntime，返回 Spec、annotations 及是否集群运行时
 // GetServingRuntime Get a ServingRuntime by name. First, ServingRuntimes in the given namespace will be checked.
 // If a resource of the specified name is not found, then ClusterServingRuntimes will be checked.
 // GetServingRuntime returns the ServingRuntimeSpec, annotations, error, and whether it's a ClusterServingRuntime

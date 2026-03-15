@@ -30,12 +30,15 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	igwapiv1alpha2 "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
@@ -136,6 +139,37 @@ func AddAll(s *runtime.Scheme) error {
 		AddWVAAPIs,
 		AddOpenTelemetryAPIs,
 	)
+}
+
+// AddAllForManager registers API groups for the KServe controller manager (cmd/manager).
+// Optional APIs (Knative, Istio, KEDA, OpenTelemetry) are only registered when their
+// CRDs are present in the cluster. This avoids "no matches for kind ... in version ..."
+// and cache sync failures when those CRDs are not installed.
+func AddAllForManager(s *runtime.Scheme, config *rest.Config) error {
+	if err := addAll(s, AddControllerAPIs, AddGatewayAPIs, AddLeaderWorkerSetAPIs); err != nil {
+		return err
+	}
+	if ok, _ := utils.IsCrdAvailable(config, knservingv1.SchemeGroupVersion.String(), constants.KnativeServiceKind); ok {
+		if err := AddKnativeAPIs(s); err != nil {
+			return err
+		}
+	}
+	if ok, _ := utils.IsCrdAvailable(config, istioclientv1beta1.SchemeGroupVersion.String(), constants.IstioVirtualServiceKind); ok {
+		if err := AddIstioAPIs(s); err != nil {
+			return err
+		}
+	}
+	if ok, _ := utils.IsCrdAvailable(config, kedav1alpha1.SchemeGroupVersion.String(), constants.KedaScaledObjectKind); ok {
+		if err := AddKedaAPIs(s); err != nil {
+			return err
+		}
+	}
+	if ok, _ := utils.IsCrdAvailable(config, otelv1beta1.GroupVersion.String(), constants.OpenTelemetryCollector); ok {
+		if err := AddOpenTelemetryAPIs(s); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func addAll(s *runtime.Scheme, fns ...addToSchemeFunc) error {

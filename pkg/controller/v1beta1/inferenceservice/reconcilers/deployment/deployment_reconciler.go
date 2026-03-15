@@ -74,6 +74,7 @@ func NewDeploymentReconciler(client kclient.Client,
 	}, nil
 }
 
+//+deployment: 根据 PodSpec 与组件元数据构造 Raw Deployment 列表（默认 + 可选 Worker），供 Reconcile 创建/更新
 func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,

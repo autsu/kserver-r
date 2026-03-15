@@ -277,6 +277,7 @@ func (p *Predictor) addStorageInitializerAnnotations(ctx context.Context, predic
 	return nil
 }
 
+//+predictor:1 解析或自动选择 Model 使用的 ServingRuntime/ClusterServingRuntime 并写入 Status
 func (p *Predictor) reconcileModel(ctx context.Context, isvc *v1beta1.InferenceService, multiNodeEnabled bool) (v1alpha1.ServingRuntimeSpec, error) {
 	var sRuntime v1alpha1.ServingRuntimeSpec
 
@@ -368,6 +369,7 @@ func (p *Predictor) reconcileModel(ctx context.Context, isvc *v1beta1.InferenceS
 	return sRuntime, nil
 }
 
+//+predictor: 用 ServingRuntimeSpec 的 containers 与 InferenceService 合并得到 PodSpec，供后续创建 Deployment 使用
 func (p *Predictor) buildPodSpec(isvc *v1beta1.InferenceService, sRuntime v1alpha1.ServingRuntimeSpec) (corev1.PodSpec, error) {
 	var podSpec corev1.PodSpec
 	var predContainer *corev1.Container
@@ -690,6 +692,7 @@ func computeRayNodeAndGPUs(mergedWorkerPodSpec *corev1.PodSpec, totalRequestGPUC
 	return totalRequestGPUCount, 1, 1, nil
 }
 
+//+predictor: 用 PodSpec 创建 RawKubeReconciler 并执行 Reconcile，生成 Deployment、Service、HPA
 func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta, workerObjectMeta metav1.ObjectMeta, podSpec, workerPodSpec *corev1.PodSpec) error {
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {

@@ -143,7 +143,7 @@ func main() {
 	setupLog.Info("Registering Components.")
 
 	setupLog.Info("Setting up controller schemes")
-	if err := kservescheme.AddAll(mgr.GetScheme()); err != nil {
+	if err := kservescheme.AddAllForManager(mgr.GetScheme(), cfg); err != nil {
 		setupLog.Error(err, "unable to register API schemes")
 		os.Exit(1)
 	}
