@@ -69,7 +69,7 @@ func NewTransformer(client client.Client, clientset kubernetes.Interface, scheme
 	}
 }
 
-// Reconcile observes the world and attempts to drive the status towards the desired state.
+//+transformer:2 调和 Transformer 组件，前后处理服务
 func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	p.Log.Info("Reconciling Transformer", "TransformerSpec", isvc.Spec.Transformer)
 	transformer := isvc.Spec.Transformer.GetImplementation()

@@ -218,7 +218,125 @@ spec:
    - **Deployment**：`createRawDefaultDeployment(..., podSpec, ...)` 会生成一个 Deployment，其 `spec.template.spec` = 上述 PodSpec，即 Pod 里是 Triton 容器（镜像、8080/9000 端口等来自 Runtime）。
    - **Service**：根据同一组件元数据和 Pod 端口创建 Service，把流量引到这些 Pod。
 
-因此，**Runtime 里指定的容器镜像、端口、支持的模型格式与协议，会通过这条链路进入 PodSpec，再被用来生成 Deployment 和 Service**；对应源码就是上面列出的 `buildPodSpec`、`reconcileRawDeployment`、`createRawDeployment`/`createRawDefaultDeployment` 以及 `RawKubeReconciler.Reconcile`。
+**4. 最终构建出的资源示例（控制器实际写进集群的 YAML 形态）**
+
+在 Standard 部署模式下，上面示例中的 `my-tf-svc` 会得到类似下面的 Deployment 和 Service（名称来自 `InferenceService.name` + `-predictor`，Pod 由 Runtime 的容器 + 可选 Storage Initializer 等组成）。此处仅展示与 Runtime 直接相关的核心结构，省略 HPA、Ingress 等。
+
+```yaml
+# --- Deployment（名称：<InferenceService名>-predictor）---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-tf-svc-predictor
+  namespace: default
+  labels:
+    app: isvc.my-tf-svc-predictor
+    component: predictor
+spec:
+  selector:
+    matchLabels:
+      app: isvc.my-tf-svc-predictor
+  template:
+    metadata:
+      labels:
+        app: isvc.my-tf-svc-predictor
+        component: predictor
+    spec:
+      # 以下 Pod 内容来自 ClusterServingRuntime 的 containers + InferenceService 合并
+      containers:
+        - name: kserve-container
+          image: kserve-tritonserver:replace
+          args:
+            - tritonserver
+            - --model-store=/mnt/models
+            - --grpc-port=9000
+            - --http-port=8080
+          ports:
+            - containerPort: 8080
+            - containerPort: 9000
+          # resources、volumeMounts 等可来自 Runtime 或 IS 覆盖
+        # 若有 storageUri，还会有一个 storage-initializer initContainer
+---
+# --- Service（名称：<InferenceService名>-predictor）---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-tf-svc-predictor
+  namespace: default
+spec:
+  selector:
+    app: isvc.my-tf-svc-predictor
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: grpc
+      port: 9000
+      targetPort: 9000
+```
+
+因此，**Runtime 里指定的容器镜像、端口、支持的模型格式与协议，会通过这条链路进入 PodSpec，再被用来生成上述形态的 Deployment 和 Service**；对应源码就是上面列出的 `buildPodSpec`、`reconcileRawDeployment`、`createRawDeployment`/`createRawDefaultDeployment` 以及 `RawKubeReconciler.Reconcile`。
+
+---
+
+## 从机器学习角度：为什么需要 Runtime？与 vLLM 的关系
+
+### 为什么需要 Runtime（ServingRuntime / ClusterServingRuntime）
+
+从机器学习推理链路来看，一次「模型服务」需要同时确定三件事：
+
+1. **模型格式**：模型怎么存、怎么加载（如 TensorFlow SavedModel、PyTorch TorchScript、ONNX、HuggingFace 目录等）。
+2. **推理框架/引擎**：谁负责加载模型、跑推理、暴露 HTTP/gRPC 接口（如 Triton、MLServer、vLLM、TorchServe 等）。
+3. **协议与端口**：对外提供哪种 API（KServe v1/v2、gRPC、OpenAI 兼容等）以及监听哪些端口。
+
+**Runtime 在 KServe 里就是「推理框架 + 模型格式 + 协议」的模板**：  
+它声明「我这个运行时用哪个镜像、跑哪个推理引擎、支持哪些模型格式和协议」。InferenceService 只关心「要服务哪个模型、从哪里拉模型」；**用哪个引擎、用什么端口和协议**，则由 Runtime 提供。这样：
+
+- 平台可以预置若干 Runtime（Triton、MLServer、HuggingFace Server 等），用户按模型格式选一个即可；
+- 同一套 Runtime 可被多个 InferenceService 复用，无需每个服务都写死镜像和启动参数。
+
+所以 **Runtime 不是「推理框架本身」**，而是 **「对某个推理框架（及其镜像、参数、支持的格式与协议）的 K8s 抽象」**。vLLM、Triton、MLServer 等是具体的推理框架；Runtime 是「在 KServe 里如何配置、选用这些框架」的 CR。
+
+### Runtime 和 vLLM 的关系：有「vLLM Runtime」吗？
+
+- **vLLM** 本身是一个**推理框架/引擎**（类似 Triton、MLServer），专注 LLM 高吞吐推理，提供 HTTP/OpenAI 兼容 API 等。
+- 在 KServe 里，**没有单独一个叫 "ServingRuntime: vllm" 的 CR**，但**有使用 vLLM 的运行时**，常见两种形态：
+  1. **HuggingFace Server + vLLM 后端**：`ClusterServingRuntime` 使用 `kserve/huggingfaceserver` 等镜像，通过环境或配置启用 vLLM 后端（例如 `serving.kserve.io/server-type: huggingfaceserver`，镜像内用 vLLM 做推理）。E2E 和安装脚本里都有 `vllm` 相关用例（如 `test/e2e/predictor/test_huggingface_vllm_cpu.py`、install 脚本里的 vLLM 环境变量与 `vllm serve` 命令）。
+  2. **LLM InferenceService（LLMInferenceService）**：KServe 的 v1alpha2 **LLMInferenceService** 控制器会为 LLM 场景生成使用 **vLLM** 的 workload（例如 `vllm serve /mnt/models ...`），配置在 `charts/kserve-runtime-configs/files/llmisvcconfigs/resources.yaml`、install 脚本内嵌的 ClusterServingRuntime/预设里，包含 `VLLM_*` 环境变量和 `vllm serve` 启动命令。
+
+因此可以简单记：**Runtime = 在 KServe 里选用「用谁做推理」的模板**；Triton、MLServer、vLLM 等是具体引擎；**有基于 vLLM 的 Runtime/预设**（通过 HuggingFace Runtime 的 vLLM 后端或 LLMInferenceService 的 vLLM 配置），但没有一个 CR kind 专门叫 "VLLMRuntime"。
+
+### HuggingFace Server 与 vLLM 后端的关系
+
+**HuggingFace Server** 指的是 KServe 的 `kserve/huggingfaceserver` 这类镜像里跑的一个**统一推理服务进程**：对外暴露 KServe/OpenAI 兼容的 HTTP API（如 `/v1/models/.../predict`、`/openai/v1/chat/completions`），请求进来后由它**内部选一个「后端」**去真正加载模型、做推理。
+
+- **两种后端**（代码里见 `python/huggingfaceserver/huggingfaceserver/__init__.py` 的 `Backend` 枚举）：
+  - **`huggingface`**：用 HuggingFace 生态（transformers、accelerate 等）做推理，适合小模型、encoder、非 LLM 生成等。
+  - **`vllm`**：把实际推理交给 **vLLM 引擎**（高吞吐、PagedAttention 等），适合大语言模型生成。
+- **选择方式**：启动参数 `--backend=huggingface` / `--backend=vllm`，或 **`auto`**（默认）：若模型在 vLLM 支持列表里则用 vLLM，否则退回 HuggingFace 后端（见 `python/huggingfaceserver/huggingfaceserver/__main__.py` 中 `is_vllm_backend_enabled`、`VLLMModel` 的加载逻辑）。
+- **关系一句话**：**HuggingFace Server = 一个对外提供 API 的服务进程；vLLM 后端 = 该进程内部可选的推理引擎之一**。不是两个独立服务，而是「一个服务，两种推理实现可切换」。
+
+---
+
+## Predictor、Transformer、Explainer 是什么？（代码里的三组件）
+
+在 **InferenceService** 的 Spec 里（`pkg/apis/serving/v1beta1/inference_service.go`），有三个可选组件，对应三类子服务：
+
+| 组件 | 含义 | 是否必填 | 调用关系 |
+|------|------|----------|----------|
+| **Predictor** | **模型推理**：加载模型、执行预测/生成，是核心推理能力。 | **必填** | 被 Transformer、Explainer 调用；不依赖其他组件。 |
+| **Transformer** | **前后处理**：在调用 Predictor 前后做预处理（如分词、特征转换）与后处理（如解析、格式化）。 | 可选 | **调用 Predictor**；请求先到 Transformer，再转发到 Predictor，最后把结果返回或再加工。 |
+| **Explainer** | **可解释性**：对模型预测做解释（如特征重要性、反事实等），通常依赖 ART 等解释框架。 | 可选 | **调用 Predictor 或 Transformer**（若存在）；解释请求会转发到下游推理服务。 |
+
+- **代码定义**：
+  - `Predictor`：`PredictorSpec`，必填；可包含 `Model`（ServingRuntime/ClusterServingRuntime）、或各类框架（TFServing、SKLearn、XGBoost 等）。
+  - `Transformer`：`TransformerSpec`（`pkg/apis/serving/v1beta1/transformer.go`），注释写明：「pre/post processing before and after the predictor call，transformer service calls to predictor service」。
+  - `Explainer`：`ExplainerSpec`（`pkg/apis/serving/v1beta1/explainer.go`），注释写明：「model explanation service spec，explainer service calls to predictor or transformer if it is specified」。
+- **请求流向**：  
+  **用户 → (可选) Transformer → Predictor**；若配了 Explainer，**用户 → Explainer → Predictor 或 Transformer**。  
+  控制器会为每个组件分别建 Deployment/Service（例如 `my-svc-predictor`、`my-svc-transformer`），通过内部 URL 串联。
+
+因此：**Predictor = 推理本体；Transformer = 前后处理并调 Predictor；Explainer = 可解释性并调 Predictor/Transformer**。
 
 ## 小结
 

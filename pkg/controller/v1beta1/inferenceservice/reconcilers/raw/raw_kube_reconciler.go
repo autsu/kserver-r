@@ -234,7 +234,7 @@ func createRawURL(ingressConfig *v1beta1.IngressConfig, metadata metav1.ObjectMe
 	return url, nil
 }
 
-//+raw: 依次调和 OTel Collector、Workload(Deployment)、Service、HPA
+//+raw:4 依次调和 OTel Collector、Workload(Deployment)、Service、HPA
 func (r *RawKubeReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment, error) {
 	// reconcile OTel Collector
 	if r.OtelCollector != nil {

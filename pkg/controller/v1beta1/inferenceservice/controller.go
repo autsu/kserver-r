@@ -118,6 +118,7 @@ type InferenceServiceReconciler struct {
 	VirtualServiceAvailable bool
 }
 
+//+controller:1 InferenceService 调和入口，按 Spec 组装并依次调和 Predictor/Transformer/Explainer 组件
 func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Fetch the InferenceService instance
 	isvc := &v1beta1.InferenceService{}

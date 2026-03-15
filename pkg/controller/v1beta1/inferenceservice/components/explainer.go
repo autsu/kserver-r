@@ -67,7 +67,7 @@ func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *
 	}
 }
 
-// Reconcile observes the explainer and attempts to drive the status towards the desired state.
+//+explainer:2 调和 Explainer 组件，可解释性服务
 func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	e.Log.Info("Reconciling Explainer", "ExplainerSpec", isvc.Spec.Explainer)
 	explainer := isvc.Spec.Explainer.GetImplementation()

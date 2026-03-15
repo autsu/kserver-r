@@ -80,7 +80,7 @@ func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *
 	}
 }
 
-// Reconcile observes the predictor and attempts to drive the status towards the desired state.
+//+predictor:2 调和 Predictor 组件，驱动 PodSpec 与 Raw/Knative 部署
 func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	var predContainer *corev1.Container
 	var podSpec corev1.PodSpec
@@ -692,7 +692,7 @@ func computeRayNodeAndGPUs(mergedWorkerPodSpec *corev1.PodSpec, totalRequestGPUC
 	return totalRequestGPUCount, 1, 1, nil
 }
 
-//+predictor: 用 PodSpec 创建 RawKubeReconciler 并执行 Reconcile，生成 Deployment、Service、HPA
+//+predictor:3 用 PodSpec 创建 RawKubeReconciler 并执行 Reconcile，生成 Deployment、Service、HPA
 func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta, workerObjectMeta metav1.ObjectMeta, podSpec, workerPodSpec *corev1.PodSpec) error {
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {
